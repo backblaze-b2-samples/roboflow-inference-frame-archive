@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -27,6 +28,12 @@ logger = logging.getLogger(__name__)
 
 CAMERAS_PREFIX = "cameras/"
 RUNS_PREFIX = "runs/"
+
+# Camera/run configs are one B2 GET per object with no batch-read API. A
+# bounded thread pool keeps `list_cameras`/`list_runs` from serializing those
+# reads one at a time — the same fix applied to the archive gallery/metrics
+# reads in repo/service archive.py.
+_READ_CONCURRENCY = 16
 
 # Live run status keyed by run_id. Guarded by a lock because the worker thread
 # writes while request handlers (on Starlette's threadpool) read.
@@ -76,13 +83,10 @@ def get_camera(camera_id: str) -> Camera | None:
 
 
 def list_cameras() -> list[Camera]:
-    cameras: list[Camera] = []
-    for key in archive.list_keys(CAMERAS_PREFIX):
-        if not key.endswith(".json"):
-            continue
-        data = _get_json(key)
-        if data:
-            cameras.append(Camera.model_validate(data))
+    keys = [k for k in archive.list_keys(CAMERAS_PREFIX) if k.endswith(".json")]
+    with ThreadPoolExecutor(max_workers=_READ_CONCURRENCY) as pool:
+        docs = pool.map(_get_json, keys)
+    cameras = [Camera.model_validate(data) for data in docs if data]
     cameras.sort(key=lambda c: c.created_at, reverse=True)
     return cameras
 
@@ -125,11 +129,13 @@ def get_run(camera_id: str, run_id: str) -> RunRecord | None:
 
 
 def list_runs(camera_id: str) -> list[RunRecord]:
+    keys = [
+        k for k in archive.list_keys(f"{RUNS_PREFIX}{camera_id}/") if k.endswith(".json")
+    ]
+    with ThreadPoolExecutor(max_workers=_READ_CONCURRENCY) as pool:
+        docs = pool.map(_get_json, keys)
     runs: dict[str, RunRecord] = {}
-    for key in archive.list_keys(f"{RUNS_PREFIX}{camera_id}/"):
-        if not key.endswith(".json"):
-            continue
-        data = _get_json(key)
+    for data in docs:
         if data:
             record = RunRecord.model_validate(data)
             runs[record.id] = record

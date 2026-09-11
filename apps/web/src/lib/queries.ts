@@ -246,11 +246,44 @@ export function useStartRun(cameraId: string) {
   const qc = useQueryClient();
   return useMutation<Awaited<ReturnType<typeof startRun>>, ApiError, void>({
     mutationFn: () => startRun(cameraId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.runs(cameraId) }),
+    onSuccess: (run) => {
+      // Prepend an optimistic "queued" placeholder immediately. Re-running
+      // detection on a camera that already has a completed run otherwise
+      // leaves the panel showing that previous run's stale "done" data, and
+      // useRuns' refetchInterval gate (computed from the cached latest run,
+      // which is still "done") never turns polling back on until *something*
+      // else refetches it — invalidateQueries alone depends on that race.
+      // Writing the new run into the cache directly makes it the latest run
+      // synchronously, so the gate sees an active run right away, same as the
+      // first run on a camera. The follow-up invalidate reconciles it with
+      // real progress on the next poll tick.
+      const modelAlias =
+        qc.getQueryData<Camera>(qk.camera(cameraId))?.model_alias ?? "yolov8n-640";
+      qc.setQueryData<RunRecord[]>(qk.runs(cameraId), (previous) => [
+        {
+          id: run.run_id,
+          camera_id: run.camera_id,
+          status: run.status,
+          frames_processed: 0,
+          frames_flagged: 0,
+          detections_written: 0,
+          bytes_written: 0,
+          device: "cpu",
+          model_alias: modelAlias,
+          summary_key: null,
+          error: null,
+          created_at: new Date().toISOString(),
+          started_at: null,
+          finished_at: null,
+        },
+        ...(previous ?? []),
+      ]);
+      qc.invalidateQueries({ queryKey: qk.runs(cameraId) });
+    },
   });
 }
 
-const runIsActive = (status?: string) =>
+export const runIsActive = (status?: string) =>
   status === "running" || status === "queued";
 
 export function useRuns(cameraId: string | undefined, { enabled = true }: QueryGate = {}) {
@@ -280,16 +313,27 @@ export function useRun(
 
 // --- Archive (detections gallery + dashboard roll-up) ----------------------
 
-export function useDetections(filters: DetectionFilters) {
+// `pollWhileActive` mirrors useRuns' own gating: true while the caller has
+// determined (via `runIsActive` over its own useRuns data) that a run is in
+// flight, so a just-archived frame shows up without a manual refresh; false
+// (the default) never polls, same as before this option existed.
+export function useDetections(
+  filters: DetectionFilters,
+  { pollWhileActive = false }: { pollWhileActive?: boolean } = {},
+) {
   return useQuery<ArchivedFrame[], ApiError>({
     queryKey: qk.detections(filters),
     queryFn: () => getDetections(filters),
+    refetchInterval: pollWhileActive ? 2000 : false,
   });
 }
 
-export function useArchiveMetrics() {
+export function useArchiveMetrics({
+  pollWhileActive = false,
+}: { pollWhileActive?: boolean } = {}) {
   return useQuery<ArchiveMetrics, ApiError>({
     queryKey: qk.archiveMetrics(),
     queryFn: getArchiveMetrics,
+    refetchInterval: pollWhileActive ? 2000 : false,
   });
 }

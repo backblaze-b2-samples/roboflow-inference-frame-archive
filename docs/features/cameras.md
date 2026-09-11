@@ -38,6 +38,7 @@ you run detection passes against.
 ## Flow
 - Create: `/cameras/new` form → `POST /cameras` mints an id and writes `cameras/<id>.json`
 - Read: `/cameras` lists configs; `/cameras/[id]` shows one plus its scoped archive
+- `list_cameras`/`list_runs` read each config with a bounded pool of concurrent B2 GETs rather than one at a time (one B2 GET per camera/run, no batch-read API) — with 10+ cameras this was slow enough on its own to look like the listing was stuck, independent of whether a detection run was active
 - Edit: `/cameras/[id]/edit` opens pre-filled → `PUT /cameras/{id}` overwrites the config
 - Delete: confirm dialog → `DELETE /cameras/{id}` removes the camera and its scoped artifacts
 

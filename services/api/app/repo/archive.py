@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 FRAMES_PREFIX = "frames/"
 PREDICTIONS_PREFIX = "predictions/"
 SUMMARIES_PREFIX = "summaries/"
+
+# One B2 GET per run summary — bounded so a bucket with many runs doesn't
+# open unbounded concurrent connections.
+_SUMMARY_READ_CONCURRENCY = 16
 
 
 def _partition(captured_at: datetime) -> str:
@@ -98,21 +103,39 @@ def write_summary(camera_id: str, run_id: str, rows: list[dict]) -> str:
     return key
 
 
-def list_keys(prefix: str) -> list[str]:
-    """Every object key under `prefix` (paginated)."""
+def _list_objects(prefix: str) -> list[tuple[str, datetime]]:
+    """Every (key, last_modified) pair under `prefix` (paginated)."""
     client = get_s3_client()
-    keys: list[str] = []
+    objects: list[tuple[str, datetime]] = []
     kwargs: dict = {"Bucket": settings.b2_bucket_name, "Prefix": prefix, "MaxKeys": 1000}
     try:
         while True:
             response = client.list_objects_v2(**kwargs)
-            keys.extend(obj["Key"] for obj in response.get("Contents", []))
+            objects.extend(
+                (obj["Key"], obj["LastModified"]) for obj in response.get("Contents", [])
+            )
             if not response.get("IsTruncated"):
                 break
             kwargs["ContinuationToken"] = response["NextContinuationToken"]
     except (ClientError, BotoCoreError) as e:
         raise RuntimeError(f"B2 list failed for '{prefix}': {e}") from e
-    return keys
+    return objects
+
+
+def list_keys(prefix: str) -> list[str]:
+    """Every object key under `prefix` (paginated)."""
+    return [key for key, _ in _list_objects(prefix)]
+
+
+def list_keys_with_modified(prefix: str) -> list[tuple[str, datetime]]:
+    """Every (key, last_modified) pair under `prefix` (paginated).
+
+    Used where order must reflect actual capture time rather than key layout
+    — e.g. the unfiltered `/archive` gallery, whose keys are
+    `predictions/<camera_id>/<date>/<hour>/...`. Sorting those keys lexically
+    orders by the random `camera_id` ahead of the date, not by time.
+    """
+    return _list_objects(prefix)
 
 
 def read_json(key: str) -> dict:
@@ -124,30 +147,41 @@ def read_json(key: str) -> dict:
         raise RuntimeError(f"B2 get failed for '{key}': {e}") from e
 
 
+def _read_summary_rows(key: str) -> list[dict]:
+    try:
+        import pyarrow.parquet as pq
+
+        client = get_s3_client()
+        response = client.get_object(Bucket=settings.b2_bucket_name, Key=key)
+        table = pq.read_table(io.BytesIO(response["Body"].read()))
+    except (ClientError, BotoCoreError, OSError) as e:
+        logger.warning("Skipping unreadable summary '%s': %s", key, e)
+        return []
+    return table.to_pylist()
+
+
 def read_summaries() -> list[dict]:
     """All summary rows across every camera, for the dashboard aggregation.
 
     Degrades to an empty list if pyarrow is not installed (base-only venv with
-    no runs yet) rather than raising on a dashboard read.
+    no runs yet) rather than raising on a dashboard read. Reads run
+    concurrently — one B2 GET per run summary, and the dashboard aggregates
+    every row order-independently (see `service.archive.get_metrics`), so a
+    bounded thread pool cuts wall time from O(runs) sequential round trips to
+    one.
     """
     keys = [k for k in list_keys(SUMMARIES_PREFIX) if k.endswith(".parquet")]
     if not keys:
         return []
     try:
-        import pyarrow.parquet as pq
+        import pyarrow.parquet as pq  # noqa: F401
     except ImportError:
         logger.warning("pyarrow not installed; dashboard summaries unavailable")
         return []
-    client = get_s3_client()
-    rows: list[dict] = []
-    for key in keys:
-        try:
-            response = client.get_object(Bucket=settings.b2_bucket_name, Key=key)
-            table = pq.read_table(io.BytesIO(response["Body"].read()))
-        except (ClientError, BotoCoreError, OSError) as e:
-            logger.warning("Skipping unreadable summary '%s': %s", key, e)
-            continue
-        rows.extend(table.to_pylist())
+    with ThreadPoolExecutor(max_workers=_SUMMARY_READ_CONCURRENCY) as pool:
+        rows: list[dict] = []
+        for batch in pool.map(_read_summary_rows, keys):
+            rows.extend(batch)
     return rows
 
 

@@ -19,7 +19,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { FrameOverlay } from "@/components/archive/frame-overlay";
-import { useArchiveMetrics, useCameras, useDetections } from "@/lib/queries";
+import {
+  runIsActive,
+  useArchiveMetrics,
+  useCameras,
+  useDetections,
+  useRuns,
+} from "@/lib/queries";
 
 const ANY = "__any__";
 
@@ -42,11 +48,31 @@ export function DetectionsGallery({
     limit: 60,
   };
 
-  const { data: frames = [], isLoading, error, refetch } = useDetections(filters);
+  // Same "is a run active" signal useRuns polls on, scoped to whichever
+  // camera this gallery is currently showing (the `cameraId` prop on the
+  // camera-detail page, or the camera filter on the global page). Shares
+  // camera-detail's own useRuns query/cache when both are mounted, so this
+  // costs no extra request there.
+  const { data: cameraRuns = [] } = useRuns(effectiveCamera);
+  const hasActiveRun = cameraRuns.some((run) => runIsActive(run.status));
+
+  const { data: frames = [], isLoading, error, refetch } = useDetections(filters, {
+    pollWhileActive: hasActiveRun,
+  });
   const { data: cameras = [] } = useCameras();
-  const { data: metrics } = useArchiveMetrics();
+  const { data: metrics } = useArchiveMetrics({ pollWhileActive: hasActiveRun });
   const cameraNames = new Map(cameras.map((c) => [c.id, c.name]));
   const classes = metrics?.detections_by_class.map((c) => c.class_name) ?? [];
+
+  // The unfiltered global gallery truncates to `limit`. Reuse the total the
+  // dashboard roll-up already carries (`frames_archived`) rather than adding
+  // a new count to the API response — only meaningful with no filters
+  // active, since that total isn't scoped by camera/class/date.
+  const isUnfiltered = !effectiveCamera && className === ANY && !date;
+  const isTruncated =
+    isUnfiltered &&
+    metrics !== undefined &&
+    frames.length < metrics.frames_archived;
 
   return (
     <div className="space-y-5">
@@ -122,31 +148,39 @@ export function DetectionsGallery({
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {frames.map((frame) => (
-            <Card key={frame.frame_key} className="overflow-hidden">
-              <FrameOverlay frame={frame} />
-              <CardContent className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs">
-                {frame.top_class && (
-                  <Badge variant="secondary">
-                    {frame.top_class}
-                    {frame.top_confidence !== null
-                      ? ` ${(frame.top_confidence * 100).toFixed(0)}%`
-                      : ""}
-                  </Badge>
-                )}
-                <span className="text-muted-foreground">
-                  {frame.predictions.length} detection
-                  {frame.predictions.length === 1 ? "" : "s"}
-                </span>
-                {!cameraId && (
-                  <span className="ml-auto truncate text-muted-foreground">
-                    {cameraNames.get(frame.camera_id) ?? frame.camera_id}
+        <div className="space-y-3">
+          {isTruncated && metrics && (
+            <p className="text-xs text-muted-foreground">
+              Showing {frames.length} of {metrics.frames_archived} detections,
+              newest first.
+            </p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {frames.map((frame) => (
+              <Card key={frame.frame_key} className="overflow-hidden">
+                <FrameOverlay frame={frame} />
+                <CardContent className="flex flex-wrap items-center gap-2 px-4 py-3 text-xs">
+                  {frame.top_class && (
+                    <Badge variant="secondary">
+                      {frame.top_class}
+                      {frame.top_confidence !== null
+                        ? ` ${(frame.top_confidence * 100).toFixed(0)}%`
+                        : ""}
+                    </Badge>
+                  )}
+                  <span className="text-muted-foreground">
+                    {frame.predictions.length} detection
+                    {frame.predictions.length === 1 ? "" : "s"}
                   </span>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                  {!cameraId && (
+                    <span className="ml-auto truncate text-muted-foreground">
+                      {cameraNames.get(frame.camera_id) ?? frame.camera_id}
+                    </span>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       )}
     </div>

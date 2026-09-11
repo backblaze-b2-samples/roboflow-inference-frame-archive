@@ -17,6 +17,10 @@ function Progress({
         "bg-primary/20 relative h-2 w-full overflow-hidden rounded-full",
         className
       )}
+      // Forward value to Root (the canonical shadcn Progress does this) so
+      // Radix emits the determinate state + aria-valuenow. Without it Root
+      // never sees a value and stays data-state="indeterminate" forever.
+      value={value}
       {...props}
     >
       <ProgressPrimitive.Indicator

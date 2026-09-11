@@ -75,3 +75,12 @@ Low-severity polish, left for a follow-up; none blocks the core flow.
 | Custom `FileNotFoundError` shadowed the built-in | Renamed to `FileNotFoundServiceError` |
 | Dropzone accepted any file type client-side | `accept` allow-list mirroring backend `ALLOWED_TYPES` (tested for drift) |
 | No test harness for feature specs | pytest suite across upload, files, activity, errors, validation, rate limit, pagination |
+
+## 2026-09-11 — verify
+
+Nitpicks surfaced by `/sample-3-verify` (marquee = local Roboflow Inference detection run). All gated to nitpick/backlog — do not loop on them.
+
+- Camera detail & New-camera form — after client-side navigation the page shows a blank gray placeholder box (not a content-shaped skeleton) for ~5s before content renders → momentary; a content-shaped skeleton would read better (`.local/verify/A/r3-06-camera-detail-created.png`).
+- Dashboard — after a client-side nav round-trip, 1 of 4 stat cards renders and the chart/table are briefly absent for ~5s, then it fully populates → looks momentarily like data loss (`.local/verify/A/r3-13-dashboard-after-run.png`).
+- Inline detections gallery (during an active run) — the newest card's presigned B2 image URL is regenerated on every ~4s poll tick, aborting the in-flight image load (dozens of `net::ERR_ABORTED`), so the newest thumbnail can flash blank until the run ends → wasted requests; memoize the presigned URL per frame key across polls (`.local/verify/B/r3-06-run-in-progress-1.png`).
+- Archive (bundled demo clip) — the Sintel logo bumper is detected as `clock` at confidence 0.25 → COCO-model false positive on animated footage, not an app defect; noted for demo realism (`.local/verify/B/r3-13-archive-page-via-sidebar-nav.png`).

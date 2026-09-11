@@ -51,6 +51,11 @@ def get_s3_client():
             read_timeout=30,
             retries={"mode": "standard", "total_max_attempts": 3},
             signature_version="s3v4",
+            # Default is 10. The archive gallery/metrics reads now fan out up
+            # to 16 concurrent GETs (see service/archive.py, repo/archive.py)
+            # to avoid one B2 round trip per frame/summary serializing the
+            # whole request; a pool that small would just queue them back up.
+            max_pool_connections=20,
             user_agent_extra="b2ai-roboflow-inference-frame-archive",
         ),
     )

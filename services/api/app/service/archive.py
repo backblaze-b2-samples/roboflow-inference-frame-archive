@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 from app.repo import archive
 from app.repo import cameras as camera_repo
@@ -28,6 +29,15 @@ logger = logging.getLogger(__name__)
 # never turns one page into thousands of GETs. The demo archive is far smaller.
 _MAX_SCAN = 400
 
+# Prediction JSONs are read one B2 GET per key. Reading them one at a time
+# (the original approach) makes gallery latency scale linearly with the
+# number of frames scanned -- 60 sequential round trips measured 20s+ against
+# a real bucket. Each read is a plain network call (no shared mutable state),
+# so a small bounded thread pool parallelizes them safely; chunking (rather
+# than firing all `_MAX_SCAN` at once) keeps the early-exit-once-`limit`-is-
+# reached behavior that avoids over-fetching a filtered query.
+_READ_CONCURRENCY = 16
+
 
 def _captured_at_from_key(frame_key: str) -> str:
     # frames/<camera>/YYYY-MM-DD/HH/<run>_<idx>.jpg
@@ -44,41 +54,64 @@ def get_detections(
     limit: int = 60,
 ) -> list[ArchivedFrame]:
     prefix = archive.PREDICTIONS_PREFIX + (f"{camera_id}/" if camera_id else "")
-    keys = [k for k in archive.list_keys(prefix) if k.endswith(".json")]
-    keys.sort(reverse=True)  # date/hour in the key => newest partitions first
+    objects = [
+        (key, modified)
+        for key, modified in archive.list_keys_with_modified(prefix)
+        if key.endswith(".json")
+    ]
+    # Sort by the object's actual last-modified time, newest first. Sorting the
+    # raw key strings instead would order by `predictions/<camera_id>/<date>/...`
+    # — and since camera_id (a random id) sits before the date, that silently
+    # orders by camera rather than time once 2+ cameras are unfiltered,
+    # pushing a newer camera's frames past the bounded `limit`.
+    objects.sort(key=lambda pair: pair[1], reverse=True)
+    keys = [key for key, _ in objects][:_MAX_SCAN]
 
     frames: list[ArchivedFrame] = []
-    for scanned, key in enumerate(keys):
-        if len(frames) >= limit or scanned >= _MAX_SCAN:
-            break
-        try:
-            doc = PredictionDocument.model_validate(archive.read_json(key))
-        except (RuntimeError, ValueError) as e:
-            logger.warning("Skipping unreadable prediction '%s': %s", key, e)
-            continue
-        classes = sorted({p.class_name for p in doc.predictions})
-        if class_name and class_name not in classes:
-            continue
-        captured_at = _captured_at_from_key(doc.frame_key)
-        if date and not captured_at.startswith(date):
-            continue
-        top = max(doc.predictions, key=lambda p: p.confidence, default=None)
-        frames.append(
-            ArchivedFrame(
-                frame_key=doc.frame_key,
-                prediction_key=key,
-                camera_id=doc.camera_id,
-                captured_at=captured_at,
-                frame_url=archive.presign_frame(doc.frame_key),
-                frame_width=doc.frame_width,
-                frame_height=doc.frame_height,
-                top_class=top.class_name if top else None,
-                top_confidence=round(top.confidence, 4) if top else None,
-                classes=classes,
-                predictions=doc.predictions,
-            )
-        )
+    with ThreadPoolExecutor(max_workers=_READ_CONCURRENCY) as pool:
+        for chunk_start in range(0, len(keys), _READ_CONCURRENCY):
+            if len(frames) >= limit:
+                break
+            chunk = keys[chunk_start : chunk_start + _READ_CONCURRENCY]
+            # pool.map() preserves input order, so newest-first ordering
+            # survives the concurrent read the same way it did the sequential
+            # one (see test_detections_ordering.py).
+            for key, doc in zip(chunk, pool.map(_read_prediction, chunk), strict=True):
+                if len(frames) >= limit:
+                    break
+                if doc is None:
+                    continue
+                classes = sorted({p.class_name for p in doc.predictions})
+                if class_name and class_name not in classes:
+                    continue
+                captured_at = _captured_at_from_key(doc.frame_key)
+                if date and not captured_at.startswith(date):
+                    continue
+                top = max(doc.predictions, key=lambda p: p.confidence, default=None)
+                frames.append(
+                    ArchivedFrame(
+                        frame_key=doc.frame_key,
+                        prediction_key=key,
+                        camera_id=doc.camera_id,
+                        captured_at=captured_at,
+                        frame_url=archive.presign_frame(doc.frame_key),
+                        frame_width=doc.frame_width,
+                        frame_height=doc.frame_height,
+                        top_class=top.class_name if top else None,
+                        top_confidence=round(top.confidence, 4) if top else None,
+                        classes=classes,
+                        predictions=doc.predictions,
+                    )
+                )
     return frames
+
+
+def _read_prediction(key: str) -> PredictionDocument | None:
+    try:
+        return PredictionDocument.model_validate(archive.read_json(key))
+    except (RuntimeError, ValueError) as e:
+        logger.warning("Skipping unreadable prediction '%s': %s", key, e)
+        return None
 
 
 def get_metrics() -> ArchiveMetrics:
