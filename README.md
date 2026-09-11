@@ -18,6 +18,24 @@ API, with the detection engine on-device and **B2 credentials the only required 
 - An **archive dashboard**: frames archived, detections by class, ingest volume, active cameras — read from the Parquet roll-ups.
 - The reusable B2 scaffolding: full-bucket **Files** explorer and direct-to-B2 **Upload** (bring your own footage).
 
+## What it looks like
+
+**Dashboard** — archive metrics (frames archived, detections, ingest volume, active cameras), a per-day ingest chart, and a detections-by-class breakdown read from the Parquet roll-ups.
+
+![Dashboard with frames archived, detections, ingest volume, active cameras, an ingest chart, and a detection breakdown by class](docs/images/dashboard.png)
+
+**Cameras** — the edge-camera fleet, each card showing its detection model, confidence threshold, and source clip alongside run, edit, and delete controls.
+
+![Cameras grid of edge cameras, each card showing model, confidence threshold, source, and run/edit/delete controls](docs/images/cameras.png)
+
+**Camera detail** — one camera's latest run stats (frames processed, flagged, detections, bytes archived) and its inline archive of flagged frames with bounding boxes overlaid.
+
+![Camera detail view with latest-run stats and an inline gallery of flagged frames with detection boxes](docs/images/camera-detail.png)
+
+**Detections** — the sample-scoped gallery of every flagged frame with detection boxes drawn on-device, filterable by camera, class, and date.
+
+![Detections gallery of flagged frames with bounding boxes, each labeled with class, confidence, and source camera](docs/images/detections.png)
+
 ## Quick Start
 
 You need: Node.js >= 20, pnpm >= 9, Python >= 3.12, and a free **[Backblaze B2
