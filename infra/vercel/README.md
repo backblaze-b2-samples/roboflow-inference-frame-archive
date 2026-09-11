@@ -119,7 +119,7 @@ repo-root `vercel.json` and creates one Services project:
 
 Alongside `repository-url` and the `env` list, the button carries the
 presentation parameters Vercel's clone flow renders in its preview card:
-`project-name` and `repository-name` (both `vibe-coding-starter-kit`, so the
+`project-name` and `repository-name` (both `roboflow-inference-frame-archive`, so the
 cloned repo and the Vercel Project get a readable default name), plus
 `demo-title`, `demo-description`, and `demo-image` — the last pointing at the
 dashboard screenshot in `docs/images/`. There is no `demo-url`: this repository

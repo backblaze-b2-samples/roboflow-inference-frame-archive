@@ -1,0 +1,23 @@
+# Gated detection-engine dependencies — NOT installed by `pnpm run setup`,
+# `pnpm verify`, or CI (those use requirements.lock only). The API and its
+# credential-free test suite boot without these; the modules that use them
+# (repo/inference_engine.py, repo/video.py, repo/archive.py summaries) import
+# them lazily and raise an actionable EngineUnavailableError / VideoUnavailableError
+# when they are absent, so a POST never 500s on a base-only environment.
+#
+# Install on a supported interpreter (CPython 3.12, CPU or CUDA) to run real
+# detection passes:
+#     services/api/.venv/bin/pip install -r services/api/requirements-ml.txt
+#
+# Device selection is CUDA -> CPU at runtime. onnxruntime has no Apple-MPS
+# execution provider, so on Apple Silicon this runs on CPU (documented; never
+# claimed as MPS). Use the CPU wheel of onnxruntime here; swap to
+# onnxruntime-gpu on a CUDA host.
+
+# Roboflow Inference — the vendor's own detection engine (headline capability).
+inference>=0.9.0,<0.100.0
+onnxruntime>=1.17.0,<2.0.0
+
+# Frame decode/encode and the Parquet summary roll-up.
+opencv-python-headless>=4.11.0,<4.12
+pyarrow>=17.0.0,<22.0.0

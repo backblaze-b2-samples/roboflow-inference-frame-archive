@@ -1,7 +1,36 @@
 <!-- last_verified: 2026-08-06 -->
 # App Workflows
 
-User journeys inside the application.
+User journeys inside the application. The primary journey is
+**camera → run → archive**.
+
+## Configure a Camera
+
+- User navigates to `/cameras` and clicks **New camera**
+- The form uses selectors for the finite-value fields (model, confidence, source) and free text for name and site. On create it surfaces safe defaults as placeholder/description hints: model pre-selected `yolov8n-640` (fastest, CPU-friendly), confidence `0.40`, source "Bundled demo clip (CC-BY)"
+- Choosing source "Upload a video" reveals a selector of clips already uploaded to B2 (via `/upload`), or a link to upload one first
+- Submitting `POST /cameras` writes `cameras/<id>.json` to the bucket (there is no database) and routes to the camera detail page
+- Editing at `/cameras/[id]/edit` opens the same form pre-filled with the camera's real values (no default hints)
+- Deleting (from the list or detail, behind a confirm dialog) removes the camera and every frame/prediction/summary/run scoped to it — prefix-scoped, never a bucket-wide wipe
+- See: [Cameras](features/cameras.md)
+
+## Run a Detection Pass
+
+- On a camera's card or its detail page, the user clicks **Run detection**
+- `POST /cameras/{id}/runs` returns immediately (202) with a run id; the pass executes on a background worker thread
+- The engine auto-detects the device (CUDA → CPU; CPU on Apple Silicon) and runs Roboflow Inference locally over sampled frames of the source clip
+- Every frame whose top detection clears the camera's confidence threshold is written to B2 as a JPEG frame + a prediction JSON; the whole run also writes a Parquet summary
+- The detail page polls the run (TanStack Query `refetchInterval`) and shows live counts — frames processed/flagged, detections, bytes archived, device — until it reaches `done` or `failed`
+- If the engine or the demo clip is missing, the run is recorded as `failed` with an actionable message; the request never 500s
+- See: [Detection run](features/detection-run.md)
+
+## Browse Detections
+
+- User navigates to `/archive` (Detections)
+- A gallery of flagged frames renders, each served by a short-lived presigned GET with its bounding boxes and labels overlaid in the browser
+- Filters scope the gallery by camera, detected class, and capture date; the same gallery appears scoped to one camera on its detail page
+- This gallery is deliberately scoped to the app's own output prefixes — the whole bucket stays browsable under Files
+- See: [Frame archive](features/frame-archive.md)
 
 ## Upload Files
 
@@ -34,12 +63,12 @@ User journeys inside the application.
 ## View Dashboard
 
 - User navigates to `/` (home)
-- Three parallel API calls load: stats, recent files, upload activity — all served from one shared bucket listing that the API warms at startup
-- While stats load, the page states it in words above the cards rather than showing silent skeletons
-- Stats cards show: total files, storage used, uploads today, total downloads
-- Upload chart shows last 7 days of upload activity as bar chart
-- Recent uploads table shows last 10 files with filename, size, type, date. Each filename links to that file's preview on `/files` — `/files` teaches "click a file to preview it", so the same gesture here has to answer rather than being inert text
-- Empty state: "No files uploaded yet" messages
+- One `GET /archive/metrics` call reads every per-run Parquet summary and rolls it up (the aggregator → dashboard path)
+- While metrics load, the page states it in words above the cards rather than showing silent skeletons
+- Stat cards show: frames archived, detections, ingest volume (GB), active cameras
+- The ingest chart shows frames archived per day with total GB in the corner
+- The detection breakdown lists detections by class and frames by camera, with a link through to the archive
+- Empty state: "No ingest yet" / "No detections yet" messages
 - See: [Dashboard](features/dashboard.md)
 
 ## Change Preferences

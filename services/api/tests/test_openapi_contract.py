@@ -34,11 +34,12 @@ def test_openapi_metadata_uses_canonical_local_api_identity():
     schema = app.openapi()
 
     assert schema["info"] == {
-        "title": "Vibe Coding Starter Kit API",
+        "title": "Roboflow Frame Archive API",
         "description": (
-            "Local API for the Vibe Coding Starter Kit template, providing file "
-            "upload and management backed by Backblaze B2. This contract "
-            "documents the template's local API, not a hosted public endpoint."
+            "Local API for Roboflow Frame Archive: configure edge cameras, run "
+            "Roboflow Inference detection passes on-device, and archive flagged "
+            "frames, prediction JSON, and Parquet summaries to Backblaze B2. This "
+            "contract documents the local API, not a hosted public endpoint."
         ),
         "version": "0.1.0",
     }

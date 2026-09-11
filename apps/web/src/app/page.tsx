@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { Upload } from "lucide-react";
+import { Cctv } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { StatsCards } from "@/components/dashboard/stats-cards";
-import { RecentUploadsTable } from "@/components/dashboard/recent-uploads-table";
-import { UploadChart } from "@/components/dashboard/upload-chart";
+import { ArchiveStatsCards } from "@/components/dashboard/stats-cards";
+import { DetectionBreakdown } from "@/components/dashboard/recent-uploads-table";
+import { IngestChart } from "@/components/dashboard/upload-chart";
 
 export default function DashboardPage() {
   return (
@@ -13,23 +13,24 @@ export default function DashboardPage() {
         <div>
           <h1 className="page-title">Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1.5">
-            Overview of your Backblaze B2 storage activity.
+            Edge inference archive on Backblaze B2 — frames, predictions, and
+            summaries across all cameras.
           </p>
         </div>
         <Button asChild size="sm" className="h-8">
-          <Link href="/upload">
-            <Upload className="h-3.5 w-3.5" />
-            Upload files
+          <Link href="/cameras">
+            <Cctv className="h-3.5 w-3.5" />
+            Cameras
           </Link>
         </Button>
       </div>
-      <StatsCards />
+      <ArchiveStatsCards />
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="animate-fade-in-up stagger-3">
-          <UploadChart />
+          <IngestChart />
         </div>
         <div className="animate-fade-in-up stagger-4">
-          <RecentUploadsTable />
+          <DetectionBreakdown />
         </div>
       </div>
     </div>

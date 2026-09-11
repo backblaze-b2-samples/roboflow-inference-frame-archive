@@ -4,19 +4,21 @@
 ## Components
 
 - **apps/web/** — Next.js 16 frontend (App Router, Tailwind v4, shadcn/ui)
-  - Dashboard with stats, upload chart, recent uploads
-  - File upload with drag-and-drop, progress tracking
-  - File browser with preview, download, delete
+  - Cameras: list / create / detail / edit (`/cameras…`) — the primary entity
+  - Detection runs with live status polling on the camera detail page
+  - Detections gallery (`/archive`) — flagged frames with boxes overlaid
+  - Archive dashboard (`/`) read from the Parquet roll-ups
+  - Full-bucket file browser and direct-to-B2 upload (bring-your-own footage)
   - Dark mode via `next-themes`
 - **services/api/** — FastAPI backend (layered architecture)
-  - REST API for file upload, listing, deletion
-  - B2 S3 integration via boto3
-  - File metadata extraction (images, PDFs)
-  - Health check endpoint with B2 connectivity verification
-  - Structured JSON logging with request tracing
-  - Prometheus-format metrics endpoint
+  - REST API for cameras, runs, archive reads, and the file explorer/upload
+  - Roboflow Inference detection engine (`repo/inference_engine.py`) — local, device autodetect
+  - opencv frame decode/encode (`repo/video.py`) and Parquet summaries (`repo/archive.py`)
+  - B2 S3 integration via boto3, confined to `repo/`
+  - Background worker thread per run; lock-guarded live run registry
+  - Health check, structured JSON logging, Prometheus-format metrics
 - **packages/shared/** — TypeScript type definitions
-  - Mirrors Pydantic models from the API
+  - Mirrors Pydantic models from the API (cameras, runs, detections, archive metrics)
   - Consumed by `apps/web/` as workspace dependency
 
 ## Backend Layering
@@ -49,19 +51,27 @@ runtime/   FastAPI routes — calls service, never repo directly
 services/api/
   main.py                  App entrypoint, middleware, router registration
   app/
-    types/                 Pydantic models (FileMetadata, UploadStats, etc.)
+    types/                 Pydantic models (cameras, runs, detections, files, …)
     config/                Settings loaded from environment
-    repo/                  B2 S3 client (data access layer)
-    service/               Business logic (upload, files, metadata)
-    runtime/               FastAPI route handlers
+    repo/                  Data access — boto3 B2 client, archive/cameras stores,
+                           inference_engine (Roboflow Inference), video (opencv)
+    service/               Business logic (cameras, capture worker, archive, files)
+    runtime/               FastAPI route handlers (cameras, runs, archive, files, …)
+  requirements.txt/.lock   Base deps (installed by setup/verify/CI)
+  requirements-ml.txt      Gated engine deps (inference, onnxruntime, opencv, pyarrow)
   tests/                   pytest tests (structural + integration)
 ```
+
+The detection engine, opencv, and pyarrow are **lazy-imported** inside their repo
+modules and live in the gated `requirements-ml.txt`, so the app and the
+credential-free test suite boot without the heavy ML closure. A missing engine
+surfaces as a persisted `failed` run with an actionable message, never a 500.
 
 ## Boundary Invariants
 
 - **No external SDK leakage**: `boto3` is only imported in `app/repo/`. All other layers interact with B2 through the repo interface.
 - **No raw dicts at boundaries**: All data crossing layer boundaries uses typed Pydantic models.
-- **No cross-layer mutable state**: Configuration is read-only after init, and no mutable state is shared *between* layers. Intra-layer caches/counters (the listing cache in `repo/list_cache.py`, the B2 connectivity cache in `repo/b2_client.py`, the download counter in `repo/counter.py`, the rate-limit and metrics state in `runtime/`) are module-local and guarded by a `threading.Lock`. The listing cache also owns the only background thread in the app: a stale entry is served immediately while that thread re-scans (stale-while-revalidate), and `main.lifespan` warms it once at startup so no user pays for the cold full-bucket scan.
+- **No cross-layer mutable state**: Configuration is read-only after init, and no mutable state is shared *between* layers. Intra-layer caches/counters (the listing cache in `repo/list_cache.py`, the B2 connectivity cache in `repo/b2_client.py`, the download counter in `repo/counter.py`, the live run registry in `repo/cameras.py`, the rate-limit and metrics state in `runtime/`) are module-local and guarded by a `threading.Lock`. Two kinds of background thread exist, both daemon: the listing cache's stale-while-revalidate re-scan (`main.lifespan` warms it once at startup so no user pays for the cold full-bucket scan), and one worker per detection run (`service/capture.py`) that streams frames to B2 and updates the lock-guarded run registry.
 - **Validated inputs**: All HTTP inputs validated by FastAPI/Pydantic. File keys reject empty and path-traversal patterns; optional prefix confinement via `ALLOWED_KEY_PREFIX` (off by default).
 
 ## Deployment
@@ -92,10 +102,11 @@ External provisioning and deployment remain explicit user-approved actions.
 
 ## Data Stores
 
-- **Backblaze B2** — object storage (S3-compatible API)
-  - All uploaded files stored in a single bucket
-  - File listing and metadata via S3 `list_objects_v2` / `head_object`
-  - No application database — B2 is the sole data store
+- **Backblaze B2** — object storage (S3-compatible API), the sole data store
+  - Camera configs (`cameras/<id>.json`) and run records (`runs/<camera>/<run>.json`) are JSON objects — no application database
+  - Flagged frames (`frames/…jpg`), predictions (`predictions/…json`), and per-run Parquet roll-ups (`summaries/…parquet`) under their own prefixes
+  - Bring-your-own source clips under `uploads/`
+  - Access via S3 `put_object` / `get_object` / `list_objects_v2` / `head_object` / `delete_objects` / `generate_presigned_url`
 
 ## External Services
 
@@ -111,10 +122,11 @@ See [docs/SECURITY.md](docs/SECURITY.md) for full security documentation.
 
 ## Data Flows
 
-- **Upload**: Browser -> `POST /upload/presign` (API validates the declared file + signs a PUT) -> Browser PUTs bytes **directly to B2** -> `POST /upload/verify` (API HEADs + Range-sniffs the stored object) -> response
-- **List**: Browser -> `GET /files` -> service calls repo -> returns file list
-- **Download**: Browser -> `GET /files/{key}/download` -> service validates key -> repo generates presigned URL -> browser downloads
-- **Delete**: Browser -> `DELETE /files/{key}` -> service validates key -> repo deletes from B2
+- **Camera CRUD**: Browser -> `/cameras…` -> service -> repo `put/get/list/delete` on `cameras/<id>.json` (delete also removes the camera's `frames/`,`predictions/`,`summaries/`,`runs/` prefixes)
+- **Detection run**: `POST /cameras/{id}/runs` -> worker thread: opencv decodes sampled frames -> Roboflow Inference detects (CUDA→CPU) -> flagged frames write JPEG + prediction JSON + a Parquet summary to B2; live status in the run registry, polled by the UI; run record persisted on completion
+- **Archive read**: `GET /archive/detections` -> service lists `predictions/`, presigns frames, returns boxes for the browser overlay; `GET /archive/metrics` -> service reads every `summaries/*.parquet` and rolls it up
+- **Upload**: Browser -> `POST /upload/presign` -> Browser PUTs bytes **directly to B2** -> `POST /upload/verify` (API HEADs + Range-sniffs the stored object)
+- **File explorer**: `GET /files` / `/files/{key}/download` / `DELETE /files/{key}` over the full bucket
 
 ## Observability
 
@@ -137,22 +149,26 @@ silently drift from FastAPI. `GET /metrics` is intentionally server-only.
 
 ## Canonical Files
 
-- Layered API handler: `services/api/app/runtime/upload.py`
-- Service orchestration: `services/api/app/service/upload.py`
-- B2 data access (repo layer): `services/api/app/repo/b2_client.py`
-- Pydantic models: `services/api/app/types/` (`files.py`, `upload.py`, `stats.py`, `formatting.py`)
+- Layered API handler: `services/api/app/runtime/cameras.py`
+- Service orchestration: `services/api/app/service/cameras.py`, `service/capture.py` (run worker)
+- Detection engine adapter (repo): `services/api/app/repo/inference_engine.py`
+- Archive store (repo): `services/api/app/repo/archive.py`; camera/run store: `repo/cameras.py`
+- B2 S3 client (repo): `services/api/app/repo/b2_client.py`
+- Pydantic models: `services/api/app/types/` (`cameras.py`, `runs.py`, `detections.py`, `files.py`, …)
 - Config (pydantic-settings): `services/api/app/config/settings.py`
 - Structural tests: `services/api/tests/test_structure.py`
-- OpenAPI contract: `docs/api/openapi.json`
-- OpenAPI exporter: `services/api/scripts/export_openapi.py`
+- OpenAPI contract: `docs/api/openapi.json`; exporter: `services/api/scripts/export_openapi.py`
 - Frontend API client: `apps/web/src/lib/api-client.ts`
 - Shared TypeScript types: `packages/shared/src/types.ts`
 
 ## Core Features
 
+- [Cameras](docs/features/cameras.md)
+- [Detection run](docs/features/detection-run.md)
+- [Frame archive](docs/features/frame-archive.md)
+- [Dashboard](docs/features/dashboard.md)
 - [File Upload](docs/features/file-upload.md)
 - [File Browser](docs/features/file-browser.md)
-- [Dashboard](docs/features/dashboard.md)
 - [Metadata Extraction](docs/features/metadata-extraction.md)
 
 ## References

@@ -1,11 +1,17 @@
 import type {
+  ArchiveMetrics,
+  ArchivedFrame,
+  Camera,
+  CameraInput,
   DailyUploadCount,
   FileMetadata,
   FileMetadataDetail,
   FileUploadResponse,
   PresignUploadResponse,
+  RunRecord,
+  RunStartResponse,
   UploadStats,
-} from "@vibe-coding-starter-kit/shared";
+} from "@roboflow-inference-frame-archive/shared";
 
 // Single-origin deploys (Vercel `services`: one project serving web + API) put
 // the API under /api on the same origin, so no NEXT_PUBLIC_API_URL is needed —
@@ -17,7 +23,7 @@ export const API_BASE =
   (process.env.NODE_ENV === "production" ? "/api" : "http://localhost:8000");
 
 type ApiClientRoute = {
-  method: "delete" | "get" | "post";
+  method: "delete" | "get" | "post" | "put";
   path: string;
 };
 
@@ -41,6 +47,19 @@ export const API_CLIENT_ROUTES = {
   // payload ceiling no longer caps upload size.
   uploadPresign: { method: "post", path: "/upload/presign" },
   uploadVerify: { method: "post", path: "/upload/verify" },
+  // Cameras (primary entity) — full lifecycle. Path params use the exact
+  // FastAPI names ({camera_id}, {run_id}) so the OpenAPI contract test matches.
+  cameras: { method: "get", path: "/cameras" },
+  cameraCreate: { method: "post", path: "/cameras" },
+  camera: { method: "get", path: "/cameras/{camera_id}" },
+  cameraUpdate: { method: "put", path: "/cameras/{camera_id}" },
+  cameraDelete: { method: "delete", path: "/cameras/{camera_id}" },
+  cameraRuns: { method: "get", path: "/cameras/{camera_id}/runs" },
+  cameraRunStart: { method: "post", path: "/cameras/{camera_id}/runs" },
+  cameraRun: { method: "get", path: "/cameras/{camera_id}/runs/{run_id}" },
+  // Sample-scoped archive (frames/ + predictions/) and the dashboard roll-up.
+  archiveDetections: { method: "get", path: "/archive/detections" },
+  archiveMetrics: { method: "get", path: "/archive/metrics" },
 } as const satisfies Record<string, ApiClientRoute>;
 
 /** Typed API error with HTTP status code for caller-side branching. */
@@ -350,4 +369,98 @@ function putFileToStorage(
     }
     xhr.send(file);
   });
+}
+
+// --- Cameras / runs / archive ---------------------------------------------
+
+/** Substitute path params ({camera_id}, {run_id}) into a registry template. */
+function withParams(path: string, params: Record<string, string>): string {
+  return path.replace(/\{(\w+)\}/g, (_match, key: string) =>
+    encodeURIComponent(params[key] ?? "")
+  );
+}
+
+async function apiSend<T>(path: string, method: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(path, {
+    method: method.toUpperCase(),
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+export async function getCameras() {
+  return apiFetch<Camera[]>(API_CLIENT_ROUTES.cameras.path);
+}
+
+export async function getCamera(id: string) {
+  return apiFetch<Camera>(
+    withParams(API_CLIENT_ROUTES.camera.path, { camera_id: id })
+  );
+}
+
+export async function createCamera(input: CameraInput) {
+  return apiSend<Camera>(
+    API_CLIENT_ROUTES.cameraCreate.path,
+    API_CLIENT_ROUTES.cameraCreate.method,
+    input
+  );
+}
+
+export async function updateCamera(id: string, input: CameraInput) {
+  return apiSend<Camera>(
+    withParams(API_CLIENT_ROUTES.cameraUpdate.path, { camera_id: id }),
+    API_CLIENT_ROUTES.cameraUpdate.method,
+    input
+  );
+}
+
+export async function deleteCamera(id: string) {
+  return apiSend<{ deleted: boolean; id: string }>(
+    withParams(API_CLIENT_ROUTES.cameraDelete.path, { camera_id: id }),
+    API_CLIENT_ROUTES.cameraDelete.method
+  );
+}
+
+export async function startRun(cameraId: string) {
+  return apiSend<RunStartResponse>(
+    withParams(API_CLIENT_ROUTES.cameraRunStart.path, { camera_id: cameraId }),
+    API_CLIENT_ROUTES.cameraRunStart.method
+  );
+}
+
+export async function getRuns(cameraId: string) {
+  return apiFetch<RunRecord[]>(
+    withParams(API_CLIENT_ROUTES.cameraRuns.path, { camera_id: cameraId })
+  );
+}
+
+export async function getRun(cameraId: string, runId: string) {
+  return apiFetch<RunRecord>(
+    withParams(API_CLIENT_ROUTES.cameraRun.path, {
+      camera_id: cameraId,
+      run_id: runId,
+    })
+  );
+}
+
+export interface DetectionFilters {
+  cameraId?: string;
+  className?: string;
+  date?: string;
+  limit?: number;
+}
+
+export async function getDetections(filters: DetectionFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.cameraId) params.set("camera_id", filters.cameraId);
+  if (filters.className) params.set("class_name", filters.className);
+  if (filters.date) params.set("date", filters.date);
+  params.set("limit", String(filters.limit ?? 60));
+  return apiFetch<ArchivedFrame[]>(
+    `${API_CLIENT_ROUTES.archiveDetections.path}?${params.toString()}`
+  );
+}
+
+export async function getArchiveMetrics() {
+  return apiFetch<ArchiveMetrics>(API_CLIENT_ROUTES.archiveMetrics.path);
 }

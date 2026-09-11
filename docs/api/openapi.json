@@ -1,6 +1,422 @@
 {
   "components": {
     "schemas": {
+      "ArchiveMetrics": {
+        "description": "Dashboard roll-up read from the `summaries/` Parquet files.",
+        "properties": {
+          "active_cameras": {
+            "title": "Active Cameras",
+            "type": "integer"
+          },
+          "detections_by_class": {
+            "items": {
+              "$ref": "#/components/schemas/ClassCount"
+            },
+            "title": "Detections By Class",
+            "type": "array"
+          },
+          "detections_total": {
+            "title": "Detections Total",
+            "type": "integer"
+          },
+          "frames_archived": {
+            "title": "Frames Archived",
+            "type": "integer"
+          },
+          "ingest_activity": {
+            "items": {
+              "$ref": "#/components/schemas/DailyIngest"
+            },
+            "title": "Ingest Activity",
+            "type": "array"
+          },
+          "ingest_gigabytes": {
+            "title": "Ingest Gigabytes",
+            "type": "number"
+          },
+          "per_camera": {
+            "items": {
+              "$ref": "#/components/schemas/CameraFrameCount"
+            },
+            "title": "Per Camera",
+            "type": "array"
+          },
+          "predictions_written": {
+            "title": "Predictions Written",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "frames_archived",
+          "predictions_written",
+          "detections_total",
+          "ingest_gigabytes",
+          "active_cameras",
+          "detections_by_class",
+          "per_camera",
+          "ingest_activity"
+        ],
+        "title": "ArchiveMetrics",
+        "type": "object"
+      },
+      "ArchivedFrame": {
+        "description": "A gallery row for `/archive`: the presigned frame image plus its boxes.",
+        "properties": {
+          "camera_id": {
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "captured_at": {
+            "title": "Captured At",
+            "type": "string"
+          },
+          "classes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "array"
+          },
+          "frame_height": {
+            "title": "Frame Height",
+            "type": "integer"
+          },
+          "frame_key": {
+            "title": "Frame Key",
+            "type": "string"
+          },
+          "frame_url": {
+            "title": "Frame Url",
+            "type": "string"
+          },
+          "frame_width": {
+            "title": "Frame Width",
+            "type": "integer"
+          },
+          "prediction_key": {
+            "title": "Prediction Key",
+            "type": "string"
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/Prediction"
+            },
+            "title": "Predictions",
+            "type": "array"
+          },
+          "top_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Class"
+          },
+          "top_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top Confidence"
+          }
+        },
+        "required": [
+          "frame_key",
+          "prediction_key",
+          "camera_id",
+          "captured_at",
+          "frame_url",
+          "frame_width",
+          "frame_height",
+          "top_class",
+          "top_confidence",
+          "classes",
+          "predictions"
+        ],
+        "title": "ArchivedFrame",
+        "type": "object"
+      },
+      "Camera": {
+        "properties": {
+          "confidence_threshold": {
+            "default": 0.4,
+            "enum": [
+              0.25,
+              0.4,
+              0.5,
+              0.6,
+              0.75
+            ],
+            "title": "Confidence Threshold",
+            "type": "number"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_alias": {
+            "default": "yolov8n-640",
+            "enum": [
+              "yolov8n-640",
+              "yolov8s-640",
+              "yolov8n-seg-640"
+            ],
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "site": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Site",
+            "type": "string"
+          },
+          "source": {
+            "default": "demo",
+            "enum": [
+              "demo",
+              "upload"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "source_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Key"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "site",
+          "id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Camera",
+        "type": "object"
+      },
+      "CameraCreate": {
+        "properties": {
+          "confidence_threshold": {
+            "default": 0.4,
+            "enum": [
+              0.25,
+              0.4,
+              0.5,
+              0.6,
+              0.75
+            ],
+            "title": "Confidence Threshold",
+            "type": "number"
+          },
+          "model_alias": {
+            "default": "yolov8n-640",
+            "enum": [
+              "yolov8n-640",
+              "yolov8s-640",
+              "yolov8n-seg-640"
+            ],
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "site": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Site",
+            "type": "string"
+          },
+          "source": {
+            "default": "demo",
+            "enum": [
+              "demo",
+              "upload"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "source_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Key"
+          }
+        },
+        "required": [
+          "name",
+          "site"
+        ],
+        "title": "CameraCreate",
+        "type": "object"
+      },
+      "CameraFrameCount": {
+        "properties": {
+          "camera_id": {
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "camera_name": {
+            "title": "Camera Name",
+            "type": "string"
+          },
+          "frames": {
+            "title": "Frames",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "camera_id",
+          "camera_name",
+          "frames"
+        ],
+        "title": "CameraFrameCount",
+        "type": "object"
+      },
+      "CameraUpdate": {
+        "description": "Same shape as create \u2014 the edit form opens pre-filled with real values.",
+        "properties": {
+          "confidence_threshold": {
+            "default": 0.4,
+            "enum": [
+              0.25,
+              0.4,
+              0.5,
+              0.6,
+              0.75
+            ],
+            "title": "Confidence Threshold",
+            "type": "number"
+          },
+          "model_alias": {
+            "default": "yolov8n-640",
+            "enum": [
+              "yolov8n-640",
+              "yolov8s-640",
+              "yolov8n-seg-640"
+            ],
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "site": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Site",
+            "type": "string"
+          },
+          "source": {
+            "default": "demo",
+            "enum": [
+              "demo",
+              "upload"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "source_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Key"
+          }
+        },
+        "required": [
+          "name",
+          "site"
+        ],
+        "title": "CameraUpdate",
+        "type": "object"
+      },
+      "ClassCount": {
+        "properties": {
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "class_name",
+          "count"
+        ],
+        "title": "ClassCount",
+        "type": "object"
+      },
+      "DailyIngest": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "frames": {
+            "title": "Frames",
+            "type": "integer"
+          },
+          "gigabytes": {
+            "title": "Gigabytes",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "frames",
+          "gigabytes"
+        ],
+        "title": "DailyIngest",
+        "type": "object"
+      },
       "DailyUploadCount": {
         "properties": {
           "date": {
@@ -307,6 +723,45 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Prediction": {
+        "description": "One detected object in pixel space (top-left origin, width/height).",
+        "properties": {
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "class_name",
+          "confidence",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "Prediction",
+        "type": "object"
+      },
       "PresignUploadRequest": {
         "description": "What the browser declares before uploading directly to B2.",
         "properties": {
@@ -371,6 +826,147 @@
           "expires_in"
         ],
         "title": "PresignUploadResponse",
+        "type": "object"
+      },
+      "RunRecord": {
+        "properties": {
+          "bytes_written": {
+            "default": 0,
+            "title": "Bytes Written",
+            "type": "integer"
+          },
+          "camera_id": {
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detections_written": {
+            "default": 0,
+            "title": "Detections Written",
+            "type": "integer"
+          },
+          "device": {
+            "default": "cpu",
+            "title": "Device",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "frames_flagged": {
+            "default": 0,
+            "title": "Frames Flagged",
+            "type": "integer"
+          },
+          "frames_processed": {
+            "default": 0,
+            "title": "Frames Processed",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_alias": {
+            "default": "yolov8n-640",
+            "title": "Model Alias",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "default": "queued",
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Key"
+          }
+        },
+        "required": [
+          "id",
+          "camera_id",
+          "created_at"
+        ],
+        "title": "RunRecord",
+        "type": "object"
+      },
+      "RunStartResponse": {
+        "description": "Returned immediately when a run is accepted (202); poll the run for status.",
+        "properties": {
+          "camera_id": {
+            "title": "Camera Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "camera_id",
+          "status"
+        ],
+        "title": "RunStartResponse",
         "type": "object"
       },
       "UploadStats": {
@@ -463,12 +1059,462 @@
     }
   },
   "info": {
-    "description": "Local API for the Vibe Coding Starter Kit template, providing file upload and management backed by Backblaze B2. This contract documents the template's local API, not a hosted public endpoint.",
-    "title": "Vibe Coding Starter Kit API",
+    "description": "Local API for Roboflow Frame Archive: configure edge cameras, run Roboflow Inference detection passes on-device, and archive flagged frames, prediction JSON, and Parquet summaries to Backblaze B2. This contract documents the local API, not a hosted public endpoint.",
+    "title": "Roboflow Frame Archive API",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/archive/detections": {
+      "get": {
+        "description": "Sample-scoped gallery of flagged frames (frames/ + predictions/).\n\nEach item carries a presigned frame image URL and its boxes so the browser\noverlays them. Filterable by camera, class, and capture date.",
+        "operationId": "detections_endpoint_archive_detections_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "camera_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Camera Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "class_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Class Name"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 60,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArchivedFrame"
+                  },
+                  "title": "Response Detections Endpoint Archive Detections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detections Endpoint",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/archive/metrics": {
+      "get": {
+        "description": "Archive-wide dashboard roll-up read from the summaries/ Parquet files.",
+        "operationId": "metrics_endpoint_archive_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveMetrics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics Endpoint",
+        "tags": [
+          "archive"
+        ]
+      }
+    },
+    "/cameras": {
+      "get": {
+        "operationId": "list_cameras_endpoint_cameras_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Camera"
+                  },
+                  "title": "Response List Cameras Endpoint Cameras Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Cameras Endpoint",
+        "tags": [
+          "cameras"
+        ]
+      },
+      "post": {
+        "operationId": "create_camera_endpoint_cameras_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Camera"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Camera Endpoint",
+        "tags": [
+          "cameras"
+        ]
+      }
+    },
+    "/cameras/{camera_id}": {
+      "delete": {
+        "operationId": "delete_camera_endpoint_cameras__camera_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Camera Endpoint",
+        "tags": [
+          "cameras"
+        ]
+      },
+      "get": {
+        "operationId": "get_camera_endpoint_cameras__camera_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Camera"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Camera Endpoint",
+        "tags": [
+          "cameras"
+        ]
+      },
+      "put": {
+        "operationId": "update_camera_endpoint_cameras__camera_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Camera"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Camera Endpoint",
+        "tags": [
+          "cameras"
+        ]
+      }
+    },
+    "/cameras/{camera_id}/runs": {
+      "get": {
+        "operationId": "list_runs_endpoint_cameras__camera_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunRecord"
+                  },
+                  "title": "Response List Runs Endpoint Cameras  Camera Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs Endpoint",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Queue a detection pass and return immediately; poll the run for status.",
+        "operationId": "start_run_endpoint_cameras__camera_id__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Run Endpoint",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/cameras/{camera_id}/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_endpoint_cameras__camera_id__runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "camera_id",
+            "required": true,
+            "schema": {
+              "title": "Camera Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Endpoint",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/files": {
       "get": {
         "operationId": "list_files_endpoint_files_get",

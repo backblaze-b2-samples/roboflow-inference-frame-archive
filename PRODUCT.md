@@ -6,20 +6,25 @@ product
 
 ## Users
 
-AI coding agents and "vibe coders" (developers who lean on AI to move fast) who clone
-this kit as the foundation for a new full-stack app. Their context: they want to skip
-the boilerplate loop (dashboard, upload, file browser, cloud storage wiring) and go
-straight to building their app's unique features. They read the repo, keep the shared
-scaffolding, and rebrand + rewrite the dashboard for their own use case.
+Edge computer-vision teams — manufacturing quality engineers, retail loss-prevention
+ops, and the developers/agents building for them — who run detection models at the edge
+and need a durable, searchable archive of what the cameras saw. Their context: an edge
+"camera" runs detection locally on each frame, and the frames worth keeping (plus their
+predictions) must land in cheap, durable object storage they can browse and roll up
+later.
 
 ## Product Purpose
 
-An engineering-grade full-stack starter kit (Next.js 16 + React 19 + Tailwind v4 +
-shadcn/ui frontend, FastAPI backend) with Backblaze B2 cloud storage integrated out of
-the box. It ships a dashboard, drag-and-drop upload, and a file browser so builders
-start from a working app, not a blank page. Success = a builder can clone it, run it,
-rebrand it via one config file, and trust every screen enough to build on top without
-first fixing it.
+A B2 sample that demonstrates Backblaze B2 as the single durable sink for a
+high-throughput, multi-stream vision pipeline. An edge camera runs **Roboflow
+Inference** (`inference`) 100% locally over a source clip; every frame whose top
+detection clears the camera's confidence threshold is streamed to B2 as three coupled
+artifact streams — the JPEG frame, its prediction JSON, and a per-run Parquet summary.
+The app lets an operator configure cameras, run a detection pass, browse the flagged
+frames with boxes overlaid, and watch archive-wide metrics on a dashboard — all over
+the S3-compatible API, with B2 credentials the only required keys. Success = a builder
+can clone it, run a detection pass on the bundled CC-BY demo clip, and see the archive
+fill with frames, predictions, and summaries in their own bucket.
 
 ## Maturity and Support Boundary
 

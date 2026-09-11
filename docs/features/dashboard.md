@@ -1,62 +1,61 @@
-<!-- last_verified: 2026-07-28 -->
+<!-- last_verified: 2026-09-11 -->
 # Feature: Dashboard
 
 ## Purpose
-Provide an at-a-glance overview of file storage usage and recent upload activity.
+Provide an at-a-glance overview of the detection archive: frames archived, detections
+by class, ingest volume, and active cameras — read from the Parquet roll-ups.
 
 ## Used By
 - UI: `/` page (dashboard home)
-- API: `GET /files/stats`, `GET /files`, `GET /files/stats/activity`
+- API: `GET /archive/metrics`
 
 ## Core Functions
-- `apps/web/src/components/dashboard/stats-cards.tsx` — 4 stat cards, plus the on-screen loading notice while the bucket scan runs
-- `apps/web/src/components/dashboard/recent-uploads-table.tsx` — last 10 uploads
-- `apps/web/src/components/dashboard/upload-chart.tsx` — bar chart of uploads per day
-- `apps/web/src/lib/api-client.ts` — `getFileStats()`, `getFiles()`, `getUploadActivity()`
-- `services/api/app/runtime/files.py` — `GET /files/stats` handler
-- `services/api/app/service/files.py` — `get_stats()` business logic
-- `services/api/app/repo/b2_client.py` — `get_upload_stats()` data access
-- `services/api/app/repo/list_cache.py` — the shared bucket listing both `/files/stats` and `/files` read, so the dashboard and the file browser never scan twice
-- `apps/web/src/components/common/loading-notice.tsx` — visible, escalating wait copy
+- `apps/web/src/components/dashboard/stats-cards.tsx` — `ArchiveStatsCards` (4 metric cards)
+- `apps/web/src/components/dashboard/upload-chart.tsx` — `IngestChart` (frames archived per day, total GB)
+- `apps/web/src/components/dashboard/recent-uploads-table.tsx` — `DetectionBreakdown` (detections by class + frames by camera)
+- `apps/web/src/lib/queries.ts` — `useArchiveMetrics()`
+- `services/api/app/runtime/archive.py` — `GET /archive/metrics` handler
+- `services/api/app/service/archive.py` — `get_metrics()` aggregation
+- `services/api/app/repo/archive.py` — `read_summaries()` reads every `summaries/*.parquet`
 
 ## Canonical Files
-- Dashboard page layout: `apps/web/src/components/dashboard/stats-cards.tsx`
-- Stats service logic: `services/api/app/service/files.py`
+- Aggregation: `services/api/app/service/archive.py`
+- Cards layout: `apps/web/src/components/dashboard/stats-cards.tsx`
 
 ## Inputs
 - None (dashboard loads data automatically)
 
 ## Outputs
-- `GET /files/stats` → `UploadStats` (total_files, total_size_bytes, total_size_human, uploads_today, total_downloads)
-- `GET /files` (limit 10) → `FileMetadata[]` for recent uploads table (sorted newest-first)
-- `GET /files/stats/activity?days=7` → `DailyUploadCount[]` for chart (server-side aggregation)
+- `GET /archive/metrics` → `ArchiveMetrics`:
+  - `frames_archived`, `predictions_written`, `detections_total`, `ingest_gigabytes`, `active_cameras`
+  - `detections_by_class: ClassCount[]`, `per_camera: CameraFrameCount[]`, `ingest_activity: DailyIngest[]`
 
 ## Flow
-- Page loads → three parallel API calls (stats, recent files, upload activity), all served from one cached bucket listing
-- Stats needed ~8.3s to replace the skeletons on a 16k-object bucket, so: the API warms that listing at startup and serves it stale-while-revalidate (only the very first scan after boot can block), and the cards state the wait in words while it runs instead of showing four silent placeholders
-- Stats cards display total files, storage used, uploads today, total downloads
-- Upload chart displays server-aggregated daily counts for last 7 days as bar chart after activity data is known
-- Recent uploads table shows last 10 files with filename, size, type, date, status badge. Each filename is a link to `/files?preview=<key>`, which opens that file's preview in the browser — the rows used to be inert text with no role, tabindex or handler, so the "click a file to preview it" gesture `/files` teaches did nothing here
+- Page loads → one `GET /archive/metrics` call
+- The service lists `summaries/`, reads each per-run Parquet (the aggregator → dashboard path), and rolls up counts by class, by camera, and by day
+- Stat cards show frames archived, detections, ingest GB, active cameras
+- The ingest chart plots frames archived per day with the total GB in the corner
+- The breakdown table lists detections by class and frames by camera, with a link to the archive
 
 ## Edge Cases
-- API unavailable → error states with retry where supported; activity chart does not show a false zero state while loading
-- No files uploaded → empty chart message, empty table message
-- Large file count → stats endpoint paginates through all objects using `ContinuationToken`; the result is cached, so the cost is paid once (at startup) rather than per page view
-- Bucket changed by something other than this app → numbers can lag by up to `LIST_CACHE_TTL_SECONDS` (default 300s). The app's own uploads/deletes invalidate the cache, so they are never stale
+- No runs yet → zeroed cards, empty chart/table states
+- pyarrow not installed (base-only venv) and summaries exist → `read_summaries()` degrades to empty rather than erroring a dashboard read (a real run installs the ML deps)
+- API unavailable → inline error states with Retry
 
 ## UX States
-- Loading: an on-screen "Loading bucket stats…" notice above the cards (escalating at 4s and 12s), with skeleton placeholders for cards, table, and upload activity chart
-- Empty: "No files uploaded yet" / "No upload data available yet"
-- Loaded: populated cards, chart, table
+- Loading: an on-screen "Loading archive metrics…" notice + skeletons
+- Empty: "No ingest yet" / "No detections yet"
+- Loaded: populated cards, chart, breakdown
 
 ## Verification
-- Test files: `services/api/tests/test_upload_activity.py`, `services/api/tests/test_recent_files.py`, `services/api/tests/test_list_cache.py`, `apps/web/src/lib/loading-progress.test.ts`
-- Required cases: stats with files, stats with empty bucket, API error fallback, cached listing reused across stats and listing calls, loading copy escalating at its thresholds
+- Test files: `services/api/tests/test_openapi_contract.py` (route present), `services/api/tests/test_cameras.py`
+- Required cases: metrics route present; empty-archive zeros; populated roll-up after a run
 - Focused verify command: `pnpm test:api`
 - Default pre-PR verify command: `pnpm verify`
 - Full local verify command: `pnpm verify:full` when the E2E/live prerequisites in [Verification](../verification.md#non-live-verification) are available
-- Pass criteria: focused tests and `pnpm verify` green; explain any skipped `pnpm verify:full` prerequisites
+- Pass criteria: focused tests and `pnpm verify` green
 
 ## Related Docs
 - [ARCHITECTURE.md](../../ARCHITECTURE.md)
+- [Frame archive](frame-archive.md)
 - [App Workflows](../app-workflows.md)

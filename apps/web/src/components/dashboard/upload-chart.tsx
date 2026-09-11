@@ -20,61 +20,53 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useUploadActivity } from "@/lib/queries";
+import { useArchiveMetrics } from "@/lib/queries";
 
 const chartConfig = {
-  uploads: {
-    label: "Uploads",
-    color: "var(--chart-1)",
-  },
+  frames: { label: "Frames", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
 const skeletonBarHeights = ["h-24", "h-32", "h-20", "h-36", "h-28", "h-40", "h-24"];
 
-function UploadChartSkeleton() {
+function IngestChartSkeleton() {
   return (
     <div
       role="status"
       aria-live="polite"
       className="h-[240px] w-full rounded-md border border-border bg-muted/20 px-4 py-4"
     >
-      <span className="sr-only">Loading upload activity</span>
+      <span className="sr-only">Loading ingest activity</span>
       <div aria-hidden className="flex h-full items-end gap-3">
         {skeletonBarHeights.map((height, i) => (
-          <Skeleton
-            key={`${height}-${i}`}
-            className={`${height} min-w-0 flex-1 motion-reduce:animate-none`}
-          />
+          <Skeleton key={i} className={`${height} min-w-0 flex-1 motion-reduce:animate-none`} />
         ))}
       </div>
     </div>
   );
 }
 
-export function UploadChart() {
-  const { data: activity, isLoading, error, refetch } = useUploadActivity(7);
+export function IngestChart() {
+  const { data: metrics, isLoading, error, refetch } = useArchiveMetrics();
 
-  // Memoize so recharts doesn't re-render on identical fetches.
   const data = useMemo(
     () =>
-      (activity ?? []).map((d) => ({
+      (metrics?.ingest_activity ?? []).map((d) => ({
         date: new Date(d.date + "T00:00:00").toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
         }),
-        uploads: d.uploads,
+        frames: d.frames,
       })),
-    [activity],
+    [metrics],
   );
 
-  const total = data.reduce((sum, d) => sum + d.uploads, 0);
-  const hasKnownActivity = activity !== undefined;
+  const totalGb = metrics?.ingest_gigabytes ?? 0;
 
   return (
     <Card>
       <CardHeader className="border-b border-border py-4 px-5">
-        <CardTitle className="card-title">Upload Activity</CardTitle>
-        <CardDescription className="text-xs">Last 7 days</CardDescription>
+        <CardTitle className="card-title">Ingest Activity</CardTitle>
+        <CardDescription className="text-xs">Frames archived per day</CardDescription>
         <CardAction className="text-right self-center">
           {isLoading ? (
             <div aria-hidden className="space-y-1">
@@ -84,10 +76,10 @@ export function UploadChart() {
           ) : (
             <>
               <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Total
+                Total ingest
               </div>
               <div className="text-lg font-semibold tabular-nums tracking-tight leading-tight">
-                {hasKnownActivity ? total : "-"}
+                {totalGb.toFixed(3)} GB
               </div>
             </>
           )}
@@ -95,48 +87,31 @@ export function UploadChart() {
       </CardHeader>
       <CardContent className="p-5">
         {isLoading ? (
-          <UploadChartSkeleton />
+          <IngestChartSkeleton />
         ) : error ? (
           <ErrorState error={error} onRetry={() => refetch()} />
         ) : data.length === 0 ? (
           <EmptyState
             icon={BarChart3}
-            title="No activity yet"
-            description="Upload files to see activity trends here."
+            title="No ingest yet"
+            description="Run a detection pass to see archived-frame volume here."
           />
         ) : (
           <ChartContainer config={chartConfig} className="h-[240px] w-full">
             <BarChart data={data} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
               <defs>
-                <linearGradient id="uploads-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--color-uploads)" stopOpacity={0.95} />
-                  <stop offset="100%" stopColor="var(--color-uploads)" stopOpacity={0.55} />
+                <linearGradient id="frames-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--color-frames)" stopOpacity={0.95} />
+                  <stop offset="100%" stopColor="var(--color-frames)" stopOpacity={0.55} />
                 </linearGradient>
               </defs>
-              <CartesianGrid
-                vertical={false}
-                strokeDasharray="3 3"
-                stroke="var(--border)"
-              />
-              <XAxis
-                dataKey="date"
-                tickLine={false}
-                axisLine={false}
-                tickMargin={10}
-                fontSize={11}
-              />
-              <YAxis
-                allowDecimals={false}
-                tickLine={false}
-                axisLine={false}
-                tickMargin={6}
-                fontSize={11}
-                width={28}
-              />
+              <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={10} fontSize={11} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} tickMargin={6} fontSize={11} width={28} />
               <ChartTooltip cursor={{ fill: "var(--accent-subtle)" }} content={<ChartTooltipContent />} />
               <Bar
-                dataKey="uploads"
-                fill="url(#uploads-fill)"
+                dataKey="frames"
+                fill="url(#frames-fill)"
                 radius={[4, 4, 0, 0]}
                 animationDuration={500}
                 animationEasing="ease-out"
